@@ -17,11 +17,11 @@
    </sizepolicy>
   </property>
   <property name="windowTitle">
-   <string>OpenSLT</string>
+   <string>FowardLookingSonar Label Tool</string>
   </property>
   <property name="windowIcon">
-   <iconset resource="qss.qrc">
-    <normaloff>:/Images/resource/pcl.jpg</normaloff>:/Images/resource/pcl.jpg</iconset>
+   <iconset>
+    <normaloff>:/Images/resource/solid-paint.png</normaloff>:/Images/resource/solid-paint.png</iconset>
   </property>
   <widget class="QWidget" name="centralWidget">
    <layout class="QGridLayout" name="gridLayout_5">
@@ -86,6 +86,9 @@
          <widget class="QPushButton" name="btn_Start">
           <property name="text">
            <string>Start</string>
+          </property>
+          <property name="shortcut">
+           <string>D</string>
           </property>
          </widget>
         </item>

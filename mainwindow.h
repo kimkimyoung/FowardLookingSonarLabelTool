@@ -10,9 +10,6 @@
 #include <iostream>
 #include "opencv2/opencv.hpp"
 #include "opencv2/highgui/highgui.hpp"
-#include "XTFReader/logger.h"
-#include "XTFReader/simulator.h"
-#include "XTFReader/frame.h"
 #include "eventlabel.h"
 #include "labeldialog.h"
 
@@ -80,6 +77,8 @@ private:
     std::string file_path;
     QString dir_path;
     QStringList file_list;
+    QString saving_path;
+    QString csv_path;
 
     EventLabel *p_label = new EventLabel();
     LabelDialog *dialog = new LabelDialog();
@@ -88,6 +87,8 @@ private:
     QImage disImage;
     QString label_name;
     QList<int> current_rect;
+    QVector<QString> label_names;
+    QVector<QList<int>> current_rects;
     QString width;
     QString height;
     QString origin_x;

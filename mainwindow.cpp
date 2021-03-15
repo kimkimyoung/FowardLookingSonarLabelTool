@@ -63,14 +63,16 @@ void MainWindow::openFile()
 void MainWindow::openDir()
 {
     dir_path = QFileDialog::getExistingDirectory(this, tr("select directory"));
+    QString dir_name = dir_path.right(dir_path.length() - dir_path.lastIndexOf("/") -1);
+
     if (dir_path != ""){
         QDir dir(dir_path);
         QStringList nameFilters;
-        nameFilters << "*.bmp" << "*.BMP";
+        nameFilters << "*.data" << "*.DATA";
         file_list = dir.entryList(nameFilters, QDir::Files|QDir::NoDot);
         if (file_list.empty())
         {
-            QMessageBox::about(NULL, "ERROR", "No existed BMP files in the directory");
+            QMessageBox::about(NULL, "ERROR", "No existed .data files in the directory");
             return;
         }
         QCollator collator;
@@ -84,6 +86,11 @@ void MainWindow::openDir()
         file_path = str_path.toStdString();
         ui->Files_listWidget->addItems(file_list);
         ui->Files_listWidget->setCurrentRow(0);
+
+        if (dir.cdUp())
+        {
+            csv_path = dir.absolutePath() + "/" + dir_name + ".csv";
+        }
     }
 }
 
@@ -196,8 +203,8 @@ void MainWindow::setupAnnotationManager()
 void MainWindow::setAnnotation()
 {
     /* original poing */
-    origin_x = QString::number(int((current_rect[0] + current_rect[1]) / 2 * ratio));
-    origin_y = QString::number(int((current_rect[2] + current_rect[3]) / 2 * ratio));
+    origin_x = QString::number(int(current_rect[0] * ratio));
+    origin_y = QString::number(int(current_rect[2] * ratio));
 
     /* box size */
     width = QString::number(int((current_rect[1] - current_rect[0]) * ratio));
@@ -210,11 +217,13 @@ void MainWindow::setAnnotation()
 void MainWindow::setLabel(QString label)
 {
     label_name = label;
+    label_names.append(label_name);
 }
 
 void MainWindow::setRect(QList<int> rect)
 {
     current_rect = rect;
+    current_rects.append(current_rect);
 }
 
 /***********************************************************************************************
@@ -232,12 +241,38 @@ void MainWindow::setupLabelDialog()
 /***********************************************************************************************
  *                                  sonar image function
  * *********************************************************************************************/
+void enhanceImage(Mat& img)
+{
+    Mat imgRGB[3];
+    split(img, imgRGB);
+    for (int i = 0; i < 3; i++)
+    {
+        equalizeHist(imgRGB[i], imgRGB[i]);
+    }
+    merge(imgRGB, 3, img);
+}
 
+void colorImage(Mat& img)
+{
+    for (int i = 0; i < img.rows; i++)
+    {
+        Vec3b *ptr_color = img.ptr<Vec3b>(i);
+        for (int j = 0; j < img.cols; j++)
+        {
+            ptr_color[j][1] = abs(0.60 * ptr_color[j][0] + COMPENSARION_VALUE);
+            ptr_color[j][2] = abs(0.10 * ptr_color[j][0] + COMPENSARION_VALUE);
+            ptr_color[j][0] = abs(1.00 * ptr_color[j][0] + COMPENSARION_VALUE);
+        }
+    }
+}
 
 void MainWindow::showImage(int num)
 {
     file_path = (dir_path + "/" + ui->Files_listWidget->item(num)->text()).toStdString();
     Mat img = imread(file_path);
+    enhanceImage(img);
+    colorImage(img);
+    medianBlur(img, img, 1);
     Mat rgb;
     cvtColor(img, rgb, COLOR_BGR2RGB);
     disImage = QImage((const uchar*)(rgb.data), rgb.cols, rgb.rows, rgb.cols*rgb.channels(), QImage::Format_RGB888);
@@ -324,7 +359,7 @@ void MainWindow::saveAnnotation()
         QString path;
         QDir dir;
         QDateTime time = QDateTime::currentDateTime();
-        path = dir.currentPath() + "/" + time.toString("yy-MM-dd");
+        path = dir_path + "_annotaion";
 
         QDir dir_file;
         QString path_file;
@@ -333,34 +368,82 @@ void MainWindow::saveAnnotation()
         {
             dir_file.mkdir(path);
         }
-        path_file = path + "/" + QString::number(curIdx) + ".bmp";
-        path_xml = path + "/" + QString::number(curIdx) + ".xml";
+        path_file = path + "/" + dir_path.right(dir_path.length() - dir_path.lastIndexOf("/") -1) + "annotaion_" + QString::number(curIdx) + ".data";
+        path_xml = path + "/" + dir_path.right(dir_path.length() - dir_path.lastIndexOf("/") -1) + "annotaion_" + QString::number(curIdx) + ".xml";
         disImage.save(path_file, "bmp");
 
+        /* sonar info */
+        QFile csv_file(csv_path);
+        QStringList csv_lines;
+        QStringList csv_info;
+        if (!csv_file.open(QFile::ReadWrite | QIODevice::Text))
+        {
+            QMessageBox::about(NULL, "WARNING", "No Sonar INFO!");
+        }
+
+        QTextStream csv_out(&csv_file);
+        while (!csv_out.atEnd())
+        {
+            csv_lines.push_back(csv_out.readLine());
+        }
+        QString line = csv_lines.at(ui->Files_listWidget->currentRow());
+        csv_info = line.split(",");
+
+        /* annotation */
         QFile file(path_xml);
-        if (!file.open(QFile::WriteOnly | QIODevice::Text))
+        if (!file.open(QFile::ReadWrite | QIODevice::Text))
         {
             return;
         }
         QXmlStreamWriter writer(&file);
+
         writer.setAutoFormatting(true);
         writer.writeStartDocument();
-        writer.writeStartElement("Annotation");
-        writer.writeTextElement("folder", time.toString("yy-MM-dd"));
-        writer.writeTextElement("filename", QString::number(curIdx) + ".xml");
+
+        writer.writeStartElement("sonar");
+        writer.writeTextElement("tpye", csv_info.at(8));
+        writer.writeTextElement("version", csv_info.at(5));
+        writer.writeTextElement("range", csv_info.at(3));
+        writer.writeTextElement("horiangle", csv_info.at(4));
+        if (csv_info.at(7) == "1200")
+            writer.writeTextElement("vertiangle", QString::number(12));
+        else
+            writer.writeTextElement("vertiangle", QString::number(20));
+        writer.writeTextElement("soundspeed", csv_info.at(6));
+        writer.writeTextElement("frequency", csv_info.at(7));
+
+        writer.writeEndElement();
+
+        writer.writeStartElement("annotation");
+        writer.writeTextElement("folder", dir_path.right(dir_path.length() - dir_path.lastIndexOf("/") -1) + "annotaion");
+        writer.writeTextElement("filename", dir_path.right(dir_path.length() - dir_path.lastIndexOf("/") -1) + "annotaion_" + QString::number(curIdx) + ".xml");
         writer.writeTextElement("path", path_file);
+
+        writer.writeStartElement("size");
+        writer.writeTextElement("width", QString::number(disImage.width()));
+        writer.writeTextElement("height", QString::number(disImage.height()));
+        writer.writeTextElement("depth", QString::number(disImage.depth()));
+        writer.writeEndElement();
 
         for (int i = 0; i < ui->Anno_listWidget->count(); i++)
         {
-
+            writer.writeStartElement("object");
+            writer.writeTextElement("name", label_names[i]);
+            writer.writeStartElement("bndbox");
+            writer.writeTextElement("xmin", QString::number(current_rects[i][0]));
+            writer.writeTextElement("ymin", QString::number(current_rects[i][2]));
+            writer.writeTextElement("xmax", QString::number(current_rects[i][1]));
+            writer.writeTextElement("ymax", QString::number(current_rects[i][3]));
+            writer.writeEndElement();
+            writer.writeEndElement();
         }
 
         writer.writeEndElement();
         writer.writeEndDocument();
-        current_rect.clear();
-        curIdx++;
 
         // clear
+        label_names.clear();
+        curIdx++;
         ui->Anno_listWidget->clear();
         ui->label_image->deleteRectlist();
     }
